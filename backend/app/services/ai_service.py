@@ -324,7 +324,7 @@ class AIService:
     AI-powered candidate analysis and interviewer matching service using OpenRouter
     """
     
-    def __init__(self, api_key: str = None, model: str = "deepseek/deepseek-chat-v3-0324:free"):
+    def __init__(self, api_key: str = None, model: str = "qwen/qwen3-coder:free"):
         """
         Initialize AI Service with OpenRouter API
         
@@ -350,6 +350,11 @@ class AIService:
         
         # Model configurations for cost optimization
         self.model_configs = {
+            "qwen/qwen3-coder:free": {
+                "max_tokens": 4000,
+                "temperature": 0.3,
+                "cost_per_1k_tokens": 0.0  # Free model!
+            },
             "deepseek/deepseek-chat-v3-0324:free": {
                 "max_tokens": 4000,
                 "temperature": 0.3,
@@ -391,7 +396,7 @@ class AIService:
                 messages = [{"role": "system", "content": system_prompt}] + messages
             
             # Get model configuration
-            config = self.model_configs.get(self.model, self.model_configs["deepseek/deepseek-chat-v3-0324:free"])
+            config = self.model_configs.get(self.model, self.model_configs["qwen/qwen3-coder:free"])
             
             payload = {
                 "model": self.model,

@@ -299,12 +299,28 @@ class GoogleCalendarService:
             # For development: use run_local_server()
             # For production: use run_console() or implement web flow
             try:
-                self.credentials = flow.run_local_server(
-                    port=0,
-                    prompt='consent',  # Always show consent screen
-                    authorization_prompt_message="Please visit this URL to authorize the application: {url}",
-                    success_message="Authentication successful! You may close this window."
-                )
+                # Try common OAuth ports used by Google Cloud Console
+                oauth_ports = [8080, 8000, 3000, 9000, 8888]
+                success = False
+                
+                for port in oauth_ports:
+                    try:
+                        logger.info(f"🔐 Attempting OAuth authentication on port {port}...")
+                        self.credentials = flow.run_local_server(
+                            port=port,
+                            prompt='consent',  # Always show consent screen
+                            authorization_prompt_message=f"Please visit this URL to authorize the application: {{url}}",
+                            success_message="Authentication successful! You may close this window."
+                        )
+                        logger.info(f"✅ OAuth successful on port {port}")
+                        success = True
+                        break
+                    except Exception as port_error:
+                        logger.warning(f"⚠️ Port {port} failed: {port_error}")
+                        continue
+                
+                if not success:
+                    raise Exception("All common OAuth ports failed")
             except Exception as server_error:
                 logger.warning(f"Local server failed: {server_error}, falling back to console flow")
                 self.credentials = flow.run_console()

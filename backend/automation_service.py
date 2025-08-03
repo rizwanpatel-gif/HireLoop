@@ -124,6 +124,7 @@ This connects all your existing pieces into the automated flow you described.
 """
 
 import os
+import asyncio
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -228,23 +229,49 @@ class InterviewAutomationService:
             else:
                 interviewer_email = interviewer.email
             
-            # STEP 4: Calendar availability check with enhanced logging
-            logger.info("📅 Step 4: Checking calendar availability...")
+            # STEP 4: Enhanced Calendar availability check with automatic alternative finding
+            logger.info("📅 Step 4: Enhanced calendar availability checking with automatic alternatives...")
             preferred_time = candidate.interview_datetime
             
             if preferred_time:
-                # Check availability at preferred time
-                availability_result = await self._check_availability(candidate, interviewer, preferred_time)
+                # Enhanced availability check with automatic alternative finding (24-hour window)
+                availability_result = await self._check_availability(
+                    candidate, 
+                    interviewer, 
+                    preferred_time, 
+                    auto_find_alternatives=True,
+                    search_window_hours=24
+                )
                 
                 if availability_result["available"]:
                     # Schedule the interview!
-                    logger.info("✅ Step 5: Scheduling interview at preferred time...")
-                    interview_result = await self._schedule_interview(candidate, interviewer, preferred_time, analysis_result, db)
+                    actual_time = availability_result["time"]
+                    is_preferred = availability_result.get("is_preferred_time", True)
+                    
+                    if is_preferred:
+                        logger.info("✅ Step 5: Scheduling interview at preferred time...")
+                    else:
+                        logger.info("✅ Step 5: Scheduling interview at alternative time (auto-found)...")
+                        logger.info(f"🔄 Alternative found: {availability_result['formatted_time']}")
+                        if availability_result.get('slots_checked'):
+                            logger.info(f"🔍 Slots checked: {availability_result['slots_checked']}")
+                    
+                    interview_result = await self._schedule_interview(candidate, interviewer, actual_time, analysis_result, db)
                     
                     if interview_result["success"]:
                         logger.info("🎉 Interview scheduled successfully!")
-                        # Send success email to candidate
-                        await self._send_candidate_notification(candidate, interviewer, "scheduled", interview_result)
+                        
+                        # Enhanced notification with alternative info if applicable
+                        notification_data = interview_result.copy()
+                        if not is_preferred:
+                            notification_data.update({
+                                "was_alternative": True,
+                                "original_time": preferred_time.strftime('%A, %B %d, %Y at %I:%M %p'),
+                                "alternative_reason": "Preferred time was busy",
+                                "slots_checked": availability_result.get('slots_checked', 0)
+                            })
+                        
+                        await self._send_candidate_notification(candidate, interviewer, "scheduled", notification_data)
                         candidate.interview_scheduled = True
                         candidate.status = "scheduled"
                     else:
@@ -252,21 +279,32 @@ class InterviewAutomationService:
                         candidate.status = "analyzed_ready_for_interview"
                         
                 else:
-                    # Find alternative times
-                    logger.info("⏰ Step 5: Finding alternative time slots...")
-                    alternative_slots = await self._find_alternative_slot(candidate, interviewer)
-                    
-                    if alternative_slots:
-                        logger.info(f"📋 Found {len(alternative_slots)} alternative times")
-                        # Send email with alternative times
-                        await self._send_candidate_notification(candidate, interviewer, "alternatives", {
-                            "alternatives": alternative_slots,
+                    # No alternatives found within 24 hours, fall back to old method for longer search
+                    if availability_result.get("alternative_search_attempted"):
+                        logger.warning("❌ No alternatives found in 24h window, trying extended search...")
+                        alternative_slots = await self._find_alternative_slot(candidate, interviewer)
+                        
+                        if alternative_slots:
+                            logger.info(f"📋 Found {len(alternative_slots)} alternative times (extended search)")
+                            await self._send_candidate_notification(candidate, interviewer, "alternatives", {
+                                "alternatives": alternative_slots,
+                                "reason": availability_result["reason"],
+                                "search_attempted": "24h auto-search + 7-day extended search"
+                            })
+                            candidate.status = "analyzed_alternatives_sent"
+                        else:
+                            logger.warning("❌ No alternative times found even in extended search")
+                            await self._send_candidate_notification(candidate, interviewer, "no_availability", {
+                                "search_details": "Searched 24h automatically + 7 days extended",
+                                "reason": availability_result["reason"]
+                            })
+                            candidate.status = "analyzed_no_availability"
+                    else:
+                        # This shouldn't happen with the enhanced method, but handle it gracefully
+                        logger.warning("⚠️ Availability check failed without alternative search")
+                        await self._send_candidate_notification(candidate, interviewer, "no_availability", {
                             "reason": availability_result["reason"]
                         })
-                        candidate.status = "analyzed_alternatives_sent"
-                    else:
-                        logger.warning("❌ No alternative times found")
-                        await self._send_candidate_notification(candidate, interviewer, "no_availability", {})
                         candidate.status = "analyzed_no_availability"
             else:
                 logger.info("📞 Step 5: No preferred time - sending analysis results...")
@@ -367,12 +405,23 @@ class InterviewAutomationService:
         logger.info(f"🎯 Best interviewer: {interviewer.name} (that's you!)")
         return interviewer
     
-    async def _check_availability(self, candidate, interviewer, preferred_time):
+    async def _check_availability(self, candidate, interviewer, preferred_time, auto_find_alternatives=True, search_window_hours=24):
         """
-        Step 4: Calendar Availability Check
+        Enhanced Step 4: Calendar Availability Check with Automatic Alternative Finding
         Time: 9:03 AM - Google Calendar Integration
         
-        System checks interviewer's Google Calendar for requested time slot
+        System checks interviewer's Google Calendar for requested time slot.
+        If busy, automatically finds next available slot within search window.
+        
+        Args:
+            candidate: Candidate object
+            interviewer: Interviewer object  
+            preferred_time: Preferred datetime for interview
+            auto_find_alternatives: If True, automatically find alternative slots when preferred is busy
+            search_window_hours: Hours to search ahead for alternatives (default: 24)
+        
+        Returns:
+            Dict with availability info and alternative time if found
         """
         if not preferred_time:
             logger.warning("❌ No preferred time provided by candidate")
@@ -382,9 +431,10 @@ class InterviewAutomationService:
         start_time = preferred_time
         end_time = start_time + timedelta(hours=1)
         
-        logger.info(f"� STEP 4: CALENDAR AVAILABILITY CHECK")
+        logger.info(f"📅 STEP 4: ENHANCED CALENDAR AVAILABILITY CHECK")
         logger.info(f"⏰ Checking if {interviewer.name} is free on {start_time.strftime('%A, %B %d at %I:%M %p')}")
         logger.info(f"🔍 Querying Google Calendar API for time slot: {start_time} - {end_time}")
+        logger.info(f"🔧 Auto-find alternatives: {auto_find_alternatives}, Search window: {search_window_hours}h")
         
         # Call Google Calendar API
         availability = self.calendar_service.get_availability(
@@ -411,7 +461,8 @@ class InterviewAutomationService:
                 "available": True, 
                 "time": start_time,
                 "interviewer_name": interviewer.name,
-                "formatted_time": start_time.strftime('%A, %B %d at %I:%M %p')
+                "formatted_time": start_time.strftime('%A, %B %d at %I:%M %p'),
+                "is_preferred_time": True
             }
         else:
             # CONFLICT CASE - Interviewer is BUSY
@@ -424,17 +475,144 @@ class InterviewAutomationService:
                 conflict_end = conflict.get('end', 'Unknown')
                 logger.warning(f"   📅 Conflict #{i}: {conflict_start} - {conflict_end}")
             
-            logger.info(f"➡️  Proceeding to find alternative time slots...")
-            
-            return {
-                "available": False, 
-                "reason": f"Interviewer busy - {len(busy_times)} conflicts", 
-                "conflicts": busy_times,
-                "interviewer_name": interviewer.name
-            }
+            # Enhanced: Automatically find alternative if enabled
+            if auto_find_alternatives:
+                logger.info(f"🔍 AUTO-FINDING ALTERNATIVES within next {search_window_hours} hours...")
+                alternative_slot = await self._find_next_available_slot(
+                    interviewer, 
+                    start_time, 
+                    search_window_hours
+                )
+                
+                if alternative_slot:
+                    logger.info(f"✅ FOUND ALTERNATIVE SLOT: {alternative_slot['formatted_time']}")
+                    logger.info(f"➡️  Proceeding to STEP 5: Interview Scheduling with alternative time...")
+                    
+                    return {
+                        "available": True, 
+                        "time": alternative_slot['time'],
+                        "interviewer_name": interviewer.name,
+                        "formatted_time": alternative_slot['formatted_time'],
+                        "is_preferred_time": False,
+                        "alternative_found": True,
+                        "original_conflicts": busy_times,
+                        "search_window_hours": search_window_hours,
+                        "slots_checked": alternative_slot.get('slots_checked', 0)
+                    }
+                else:
+                    logger.warning(f"❌ NO ALTERNATIVES FOUND within {search_window_hours} hours")
+                    
+                    return {
+                        "available": False, 
+                        "reason": f"Interviewer busy - {len(busy_times)} conflicts, no alternatives found in {search_window_hours}h", 
+                        "conflicts": busy_times,
+                        "interviewer_name": interviewer.name,
+                        "alternative_search_attempted": True,
+                        "search_window_hours": search_window_hours
+                    }
+            else:
+                # Original behavior - just return conflicts
+                logger.info(f"➡️  Alternative search disabled, proceeding to find alternative time slots...")
+                
+                return {
+                    "available": False, 
+                    "reason": f"Interviewer busy - {len(busy_times)} conflicts", 
+                    "conflicts": busy_times,
+                    "interviewer_name": interviewer.name,
+                    "alternative_search_attempted": False
+                }
     
+    async def _find_next_available_slot(self, interviewer, start_from_time, search_window_hours=24):
+        """
+        Enhanced helper method to find the next available slot within a specific time window
+        
+        Args:
+            interviewer: Interviewer object
+            start_from_time: DateTime to start searching from
+            search_window_hours: Hours to search ahead (default: 24)
+        
+        Returns:
+            Dict with next available slot info or None if no slot found
+        """
+        logger.info(f"🔍 ENHANCED SLOT SEARCH: Looking for next available slot")
+        logger.info(f"   👤 Interviewer: {interviewer.name}")
+        logger.info(f"   🕐 Search from: {start_from_time.strftime('%A, %B %d at %I:%M %p')}")
+        logger.info(f"   ⏰ Search window: {search_window_hours} hours")
+        
+        # Define business hours (9 AM - 6 PM)
+        business_start = 9
+        business_end = 18
+        slot_duration_hours = 1
+        
+        # Calculate search end time
+        search_end_time = start_from_time + timedelta(hours=search_window_hours)
+        
+        current_check_time = start_from_time + timedelta(hours=1)  # Start checking 1 hour after preferred
+        slots_checked = 0
+        
+        logger.info(f"   🎯 Will search until: {search_end_time.strftime('%A, %B %d at %I:%M %p')}")
+        
+        while current_check_time <= search_end_time:
+            slots_checked += 1
+            
+            # Skip non-business hours
+            if current_check_time.hour < business_start or current_check_time.hour >= business_end:
+                current_check_time += timedelta(hours=1)
+                continue
+            
+            # Skip weekends (Saturday=5, Sunday=6) 
+            if current_check_time.weekday() >= 5:
+                # Jump to next Monday at business start
+                days_until_monday = 7 - current_check_time.weekday()
+                current_check_time = current_check_time.replace(
+                    hour=business_start, minute=0, second=0, microsecond=0
+                ) + timedelta(days=days_until_monday)
+                continue
+            
+            # Check availability for this slot
+            slot_end_time = current_check_time + timedelta(hours=slot_duration_hours)
+            
+            logger.debug(f"   🔍 Checking slot: {current_check_time.strftime('%A %d %I:%M %p')} - {slot_end_time.strftime('%I:%M %p')}")
+            
+            availability = self.calendar_service.get_availability(
+                interviewer.email,
+                current_check_time,
+                slot_end_time
+            )
+            
+            if 'error' not in availability and not availability.get('busy', []):
+                # Found a free slot!
+                logger.info(f"🎉 FOUND AVAILABLE SLOT!")
+                logger.info(f"   📅 Time: {current_check_time.strftime('%A, %B %d at %I:%M %p')}")
+                logger.info(f"   🔢 Slots checked: {slots_checked}")
+                logger.info(f"   ⏱️ Search duration: {(current_check_time - start_from_time).total_seconds() / 3600:.1f} hours ahead")
+                
+                return {
+                    'time': current_check_time,
+                    'formatted_time': current_check_time.strftime('%A, %B %d at %I:%M %p'),
+                    'slots_checked': slots_checked,
+                    'hours_ahead': (current_check_time - start_from_time).total_seconds() / 3600
+                }
+            
+            # Move to next hour
+            current_check_time += timedelta(hours=1)
+            
+            # Add a small delay to avoid overwhelming the API
+            if slots_checked % 10 == 0:
+                await asyncio.sleep(0.1)
+        
+        logger.warning(f"❌ NO AVAILABLE SLOT FOUND in {search_window_hours}h window")
+        logger.warning(f"   🔢 Total slots checked: {slots_checked}")
+        
+        return None
+
     async def _find_alternative_slot(self, candidate, interviewer):
-        """Find alternative time slots if preferred time not available"""
+        """
+        Find alternative time slots if preferred time not available
+        
+        NOTE: This method is kept for backward compatibility but the enhanced
+        _find_next_available_slot method is preferred for new implementations.
+        """
         logger.info(f"🔍 Finding alternative time slots for next 7 days...")
         
         # Look for next 7 days, business hours only (9 AM - 6 PM)
@@ -478,19 +656,31 @@ class InterviewAutomationService:
         logger.info(f"📅 Found {len(alternative_slots)} alternative time slots")
         return alternative_slots
 
-    async def _schedule_interview(self, candidate, interviewer, scheduled_time, analysis, db):
+    async def _schedule_interview(self, candidate, interviewer, scheduled_time, analysis, db, retry_count=3):
         """
-        Step 5: Interview Scheduling & Database Entry
+        Enhanced Step 5: Interview Scheduling & Database Entry with Retry Logic
         Time: 9:04 AM - Automatic Scheduling
         
-        Creates interview record in database and Google Calendar event
+        Creates interview record in database and Google Calendar event with enhanced error handling
+        
+        Args:
+            candidate: Candidate object
+            interviewer: Interviewer object  
+            scheduled_time: DateTime for the interview
+            analysis: AI analysis results
+            db: Database session
+            retry_count: Number of retries for calendar API failures (default: 3)
+        
+        Returns:
+            Dict with scheduling results and enhanced details
         """
         try:
-            logger.info(f"� STEP 5: INTERVIEW SCHEDULING & DATABASE ENTRY")
+            logger.info(f"📅 STEP 5: ENHANCED INTERVIEW SCHEDULING & DATABASE ENTRY")
             logger.info(f"📝 Creating interview record for {candidate.name} with {interviewer.name}")
             logger.info(f"📅 Scheduled Time: {scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p')}")
+            logger.info(f"🔄 Retry attempts available: {retry_count}")
             
-            # Prepare interview data for calendar
+            # Prepare enhanced interview data for calendar
             interview_data = {
                 'scheduled_time': scheduled_time,
                 'duration': 60,  # 1 hour
@@ -502,25 +692,47 @@ class InterviewAutomationService:
                 'id': f"candidate_{candidate.id}"
             }
             
-            logger.info(f"🎥 Creating Google Calendar event with Meet link...")
+            # Add additional attendee details for enhanced calendar integration
+            additional_attendees = []
+            if hasattr(candidate, 'additional_contacts') and candidate.additional_contacts:
+                # Parse additional contacts if they exist
+                try:
+                    contacts = candidate.additional_contacts.split(',')
+                    additional_attendees.extend([contact.strip() for contact in contacts if '@' in contact])
+                except:
+                    pass
             
-            # Create calendar event
-            calendar_result = self.calendar_service.create_interview_event(
-                interview_data,
+            logger.info(f"🎥 Creating Google Calendar event with Meet link...")
+            logger.info(f"👥 Attendees: {candidate.email}, {interviewer.email if interviewer else 'N/A'}")
+            if additional_attendees:
+                logger.info(f"➕ Additional attendees: {', '.join(additional_attendees)}")
+            
+            # Enhanced calendar event creation with retry logic
+            calendar_result = await self._create_calendar_event_with_retry(
+                interview_data, 
                 candidate.email,
-                interviewer.email if interviewer else os.getenv('EMAIL_USERNAME', 'rizwan.patel@gmail.com')
+                interviewer.email if interviewer else os.getenv('EMAIL_USERNAME', 'rizwan.patel@gmail.com'),
+                additional_attendees,
+                retry_count
             )
             
-            if calendar_result:
+            if calendar_result and calendar_result.get('success'):
                 logger.info(f"✅ Google Calendar event created successfully!")
                 logger.info(f"📎 Event ID: {calendar_result.get('event_id', 'N/A')}")
                 logger.info(f"🎥 Meet Link: {calendar_result.get('meet_link', 'Generated')}")
+                logger.info(f"🔗 Calendar Link: {calendar_result.get('event_link', 'N/A')}")
                 
-                # Update candidate in database
+                # Update candidate in database with enhanced fields
                 candidate.interview_datetime = scheduled_time
                 candidate.interview_scheduled = True
                 
-                # Create interview record in database
+                # Add calendar event details to candidate record
+                if hasattr(candidate, 'calendar_event_id'):
+                    candidate.calendar_event_id = calendar_result.get('event_id')
+                if hasattr(candidate, 'meet_link'):
+                    candidate.meet_link = calendar_result.get('meet_link')
+                
+                # Create enhanced interview record in database
                 from app.models.models import Interview
                 interview = Interview(
                     candidate_id=candidate.id,
@@ -531,35 +743,138 @@ class InterviewAutomationService:
                     status='scheduled',
                     notes=interview_data['notes']
                 )
+                
+                # Add calendar integration details to interview record
+                if hasattr(interview, 'calendar_event_id'):
+                    interview.calendar_event_id = calendar_result.get('event_id')
+                if hasattr(interview, 'meet_link'):
+                    interview.meet_link = calendar_result.get('meet_link')
+                
                 db.add(interview)
-                db.commit()
-                db.refresh(interview)
                 
-                logger.info(f"💾 Database interview record created:")
-                logger.info(f"   📋 Interview ID: {interview.id}")
-                logger.info(f"   👤 Candidate: {candidate.name} (ID: {candidate.id})")
-                logger.info(f"   👨‍💻 Interviewer: {interviewer.name} (ID: {interviewer.id})")
-                logger.info(f"   ⏰ Duration: 60 minutes")
-                logger.info(f"   🎯 Type: Technical Interview")
-                logger.info(f"   📊 Status: Scheduled")
-                logger.info(f"   🤖 AI Recommended Match: True")
-                
-                logger.info(f"➡️  Proceeding to STEP 6: Email Notifications...")
+                # Enhanced database commit with error handling
+                try:
+                    db.commit()
+                    db.refresh(interview)
+                    
+                    logger.info(f"💾 Enhanced database interview record created:")
+                    logger.info(f"   📋 Interview ID: {interview.id}")
+                    logger.info(f"   👤 Candidate: {candidate.name} (ID: {candidate.id})")
+                    logger.info(f"   👨‍💻 Interviewer: {interviewer.name} (ID: {interviewer.id})")
+                    logger.info(f"   ⏰ Duration: 60 minutes")
+                    logger.info(f"   🎯 Type: Technical Interview")
+                    logger.info(f"   📊 Status: Scheduled")
+                    logger.info(f"   🎥 Meet Link: {calendar_result.get('meet_link', 'N/A')}")
+                    logger.info(f"   📅 Calendar Event ID: {calendar_result.get('event_id', 'N/A')}")
+                    logger.info(f"   🤖 AI Recommended Match: True")
+                    
+                    logger.info(f"➡️  Proceeding to STEP 6: Email Notifications...")
+                    
+                    return {
+                        "success": True,
+                        "event_id": calendar_result.get('event_id'),
+                        "meet_link": calendar_result.get('meet_link'),
+                        "event_link": calendar_result.get('event_link'),
+                        "interview_id": interview.id,
+                        "scheduled_time_formatted": scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p'),
+                        "attendees_count": len([candidate.email, interviewer.email if interviewer else '']) + len(additional_attendees),
+                        "additional_attendees": additional_attendees,
+                        "calendar_integration": "success",
+                        "retries_used": retry_count - calendar_result.get('retries_remaining', retry_count)
+                    }
+                    
+                except Exception as db_error:
+                    logger.error(f"❌ Database commit failed: {db_error}")
+                    db.rollback()
+                    
+                    # Try to delete the calendar event since DB failed
+                    try:
+                        if calendar_result.get('event_id'):
+                            self.calendar_service.delete_interview_event(calendar_result['event_id'])
+                            logger.info(f"🗑️ Cleaned up calendar event due to DB failure")
+                    except:
+                        logger.warning(f"⚠️ Could not clean up calendar event: {calendar_result.get('event_id')}")
+                    
+                    return {"success": False, "error": f"Database error: {str(db_error)}"}
+                    
+            else:
+                error_msg = calendar_result.get('error', 'Calendar event creation failed') if calendar_result else 'Calendar service unavailable'
+                logger.error(f"❌ Failed to create calendar event: {error_msg}")
                 
                 return {
-                    "success": True,
-                    "event_id": calendar_result.get('event_id'),
-                    "meet_link": calendar_result.get('meet_link'),
-                    "interview_id": interview.id,
-                    "scheduled_time_formatted": scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p')
+                    "success": False, 
+                    "error": f"Calendar integration failed: {error_msg}",
+                    "calendar_integration": "failed",
+                    "retries_attempted": retry_count
                 }
-            else:
-                logger.error("❌ Failed to create calendar event")
-                return {"success": False, "error": "Calendar event creation failed"}
                 
         except Exception as e:
-            logger.error(f"❌ Error in interview scheduling: {e}")
+            logger.error(f"❌ Error in enhanced interview scheduling: {e}")
+            logger.exception("Full error details:")
             return {"success": False, "error": str(e)}
+
+    async def _create_calendar_event_with_retry(
+        self, 
+        interview_data, 
+        candidate_email, 
+        interviewer_email, 
+        additional_attendees, 
+        retry_count
+    ):
+        """
+        Create calendar event with retry logic for transient failures
+        
+        Args:
+            interview_data: Interview details
+            candidate_email: Candidate's email
+            interviewer_email: Interviewer's email
+            additional_attendees: List of additional emails
+            retry_count: Number of retry attempts
+        
+        Returns:
+            Dict with calendar creation results
+        """
+        last_error = None
+        
+        for attempt in range(retry_count):
+            try:
+                logger.info(f"📅 Calendar creation attempt {attempt + 1}/{retry_count}")
+                
+                # Create calendar event
+                calendar_result = self.calendar_service.create_interview_event(
+                    interview_data,
+                    candidate_email,
+                    interviewer_email,
+                    additional_attendees
+                )
+                
+                if calendar_result:
+                    logger.info(f"✅ Calendar event created on attempt {attempt + 1}")
+                    return {
+                        "success": True,
+                        **calendar_result,
+                        "retries_remaining": retry_count - attempt - 1
+                    }
+                else:
+                    last_error = "Calendar service returned None"
+                    logger.warning(f"⚠️ Attempt {attempt + 1} failed: {last_error}")
+                
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"⚠️ Attempt {attempt + 1} failed with exception: {last_error}")
+                
+                # Add exponential backoff delay
+                if attempt < retry_count - 1:
+                    delay = 2 ** attempt  # 1s, 2s, 4s delays
+                    logger.info(f"⏳ Waiting {delay}s before retry...")
+                    await asyncio.sleep(delay)
+        
+        logger.error(f"❌ All {retry_count} calendar creation attempts failed")
+        return {
+            "success": False,
+            "error": last_error,
+            "retries_attempted": retry_count
+        }
 
     async def _send_candidate_notification(self, candidate, interviewer, notification_type, data):
         """

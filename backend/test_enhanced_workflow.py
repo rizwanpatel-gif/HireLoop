@@ -44,7 +44,7 @@ def test_enhanced_workflow():
     
     test_candidate = {
         "name": "Sarah Johnson",
-        "email": "sarah.johnson.test@example.com",  # Test email
+        "email": f"sarah.johnson.test{int(datetime.now().timestamp())}@example.com",  # Unique email
         "position": "Senior Python Developer",
         "experience_years": 5,
         "skills": ["Python", "Django", "FastAPI", "PostgreSQL", "Docker", "AWS"],

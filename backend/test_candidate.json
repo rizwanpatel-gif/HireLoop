@@ -1,0 +1,11 @@
+{
+  "name": "Test Candidate",
+  "email": "test@example.com",
+  "current_title": "Software Engineer",
+  "skills": ["Python", "React", "Node.js"],
+  "resume_summary": "Experienced software engineer with 3 years in web development",
+  "preferred_interview_date": "2025-08-10T14:00:00",
+  "phone": "+91 9876543210",
+  "location": "Mumbai, India",
+  "experience_years": 3
+}

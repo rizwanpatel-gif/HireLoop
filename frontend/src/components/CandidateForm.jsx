@@ -3,10 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import LoadingDuck from './LoadingDuck';
-import TourBanner from '../onboarding/TourBanner';
-import CopyButton from '../onboarding/CopyButton';
 import { DEMO_RESUME_TEXT } from '../onboarding/tourSteps';
-import { getStage, setStage, setTourCandidateName, markTourDone } from '../onboarding/tourStorage';
+import { getStage, setStage, setTourCandidateName } from '../onboarding/tourStorage';
 import { API_BASE_URL } from '../config';
 import './CandidateForm.css';
 
@@ -41,10 +39,10 @@ const CandidateForm = () => {
       allowClose: true,
       popoverClass: 'hireloop-tour-popover',
       steps: [
-        { element: '#name', popover: { title: 'Your name', description: 'Type your own real name here.' } },
-        { element: '#email', popover: { title: 'Your real email', description: "Add your own real email - you'll actually receive the round/rejection emails, so you can see the system genuinely works." } },
-        { element: '#job_role_id', popover: { title: 'Pick a role', description: 'Pick any role from the list.' } },
-        { element: '#resume_summary', popover: { title: 'Paste a resume', description: "Use the \"Copy demo resume\" button above this field, then paste it in here." } },
+        { element: '#name-field-group', popover: { title: 'Your name', description: 'Type your own real name here.' } },
+        { element: '#email-field-group', popover: { title: 'Your real email', description: "Add your own real email - you'll actually receive the round/rejection emails, so you can see the system genuinely works." } },
+        { element: '#role-field-group', popover: { title: 'Pick a role', description: 'Pick any role from the list.' } },
+        { element: '#resume-field-group', popover: { title: 'Add a resume', description: "Click the \"Insert demo resume\" button above this field to fill it in automatically." } },
         { element: '#submit-candidate-button', popover: { title: 'Submit', description: 'Once everything is filled in, click Submit to create the candidate and jump into the live chat.' } },
       ],
     });
@@ -112,9 +110,17 @@ const CandidateForm = () => {
     }
   };
 
+  const handleInsertDemoResume = () => {
+    setFormData(prev => ({ ...prev, resume_summary: DEMO_RESUME_TEXT }));
+  };
+
   return (
     <div className="candidate-form-container">
-      {isSubmitting && <LoadingDuck message="Screening the resume..." />}
+      {isSubmitting && (
+        <LoadingDuck
+          message={tourActive ? "Screening the resume - next you'll land in the live chat..." : 'Screening the resume...'}
+        />
+      )}
       <h2>Add New Candidate</h2>
       <p className="form-subtitle">
         Just the basics - the AI screens the resume against the role, and HireLoop's chat assistant handles everything from there.
@@ -127,7 +133,7 @@ const CandidateForm = () => {
       )}
 
       <form onSubmit={handleSubmit} className="candidate-form">
-        <div className="form-group">
+        <div className="form-group" id="name-field-group">
           <label htmlFor="name">Full Name *</label>
           <input
             type="text"
@@ -140,7 +146,7 @@ const CandidateForm = () => {
           />
         </div>
 
-        <div className="form-group">
+        <div className="form-group" id="email-field-group">
           <label htmlFor="email">Email Address *</label>
           <input
             type="email"
@@ -153,7 +159,7 @@ const CandidateForm = () => {
           />
         </div>
 
-        <div className="form-group">
+        <div className="form-group" id="role-field-group">
           <label htmlFor="job_role_id">Applying For *</label>
           <select
             id="job_role_id"
@@ -171,11 +177,13 @@ const CandidateForm = () => {
           </select>
         </div>
 
-        <div className="form-group">
+        <div className="form-group" id="resume-field-group">
           <div className="form-label-row">
             <label htmlFor="resume_summary">Resume *</label>
             {tourActive && (
-              <CopyButton text={DEMO_RESUME_TEXT} label="Copy demo resume" />
+              <button type="button" className="tour-insert-btn" onClick={handleInsertDemoResume}>
+                Insert demo resume
+              </button>
             )}
           </div>
           <textarea
@@ -199,14 +207,6 @@ const CandidateForm = () => {
           {isSubmitting ? 'Screening resume...' : 'Submit Candidate'}
         </button>
       </form>
-
-      {tourActive && (
-        <TourBanner
-          instruction="Fill in your own name and email, pick any role, paste the demo resume, then submit."
-          copyText={null}
-          onSkip={() => { markTourDone(); setTourActive(false); }}
-        />
-      )}
     </div>
   );
 };

@@ -41,6 +41,8 @@ const Home = () => {
         showProgress: false,
         allowClose: true,
         popoverClass: 'hireloop-tour-popover',
+        stagePadding: 28,
+        stageRadius: 24,
       });
       driverObj.highlight({
         element: '#tour-add-candidate-card',
@@ -68,7 +70,15 @@ const Home = () => {
   };
 
   return (
-    <div className="home">
+    <div className="tour-page-wrapper">
+      {tourActive && (
+        <TourBanner
+          instruction="Click the 'Add Candidate' card below to begin the guided walkthrough."
+          copyText={null}
+          onSkip={handleSkipTour}
+        />
+      )}
+      <div className="home">
       <div className="home-cards">
         <button id="tour-add-candidate-card" className="home-card" onClick={handleAddCandidateClick}>
           <div className="home-card-icon">
@@ -86,14 +96,7 @@ const Home = () => {
           <p>Approve, schedule, and manage candidates through a simple conversation.</p>
         </button>
       </div>
-
-      {tourActive && (
-        <TourBanner
-          instruction="Click the 'Add Candidate' card above to begin the guided walkthrough."
-          copyText={null}
-          onSkip={handleSkipTour}
-        />
-      )}
+      </div>
     </div>
   );
 };

@@ -85,6 +85,26 @@
   margin-bottom: 6px;
 }
 
+.tour-insert-btn {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #a78bfa 0%, #8b7cf6 100%);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.tour-insert-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(139, 124, 246, 0.3);
+}
+
 .form-label-row label {
   margin-bottom: 0;
 }
@@ -174,6 +194,16 @@
   .form-group textarea,
   .form-group select {
     font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  .form-label-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .tour-insert-btn {
+    width: 100%;
+    text-align: center;
   }
 
   .submit-button {

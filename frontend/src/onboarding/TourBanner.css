@@ -1,8 +1,20 @@
+/* App.js's .app-main is a row flexbox for centering a single page's content -
+   pages that render the banner as a sibling above their main content (Home,
+   AgentChat) need this wrapper so the two stack vertically instead of
+   becoming side-by-side flex items in that row. */
+.tour-page-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
 .tour-banner {
-  position: fixed;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
+  /* In normal document flow (not fixed) so it pushes page content down
+     instead of floating over it - sticky just keeps it visible while
+     scrolling, it never overlaps anything below it. */
+  position: sticky;
+  top: 10px;
   z-index: 200;
   display: flex;
   flex-wrap: wrap;
@@ -10,17 +22,27 @@
   justify-content: space-between;
   gap: 14px;
   width: min(92vw, 640px);
+  margin: 10px auto 20px;
   padding: 14px 18px;
   background: white;
   border: 1.5px solid #d9cdfb;
   border-radius: 18px;
   box-shadow: 0 14px 34px rgba(139, 124, 246, 0.28), 0 4px 10px rgba(139, 124, 246, 0.16);
-  animation: tourBannerIn 0.3s ease both;
+  animation: tourBannerIn 0.3s ease both, tourBannerGlow 2.2s ease-in-out infinite;
 }
 
 @keyframes tourBannerIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tourBannerGlow {
+  0%, 100% {
+    box-shadow: 0 14px 34px rgba(139, 124, 246, 0.28), 0 4px 10px rgba(139, 124, 246, 0.16), 0 0 0 rgba(167, 139, 250, 0.5);
+  }
+  50% {
+    box-shadow: 0 14px 34px rgba(139, 124, 246, 0.28), 0 4px 10px rgba(139, 124, 246, 0.16), 0 0 24px 6px rgba(167, 139, 250, 0.5);
+  }
 }
 
 .tour-banner-text {
@@ -85,11 +107,23 @@
 
 @media (max-width: 600px) {
   .tour-banner {
-    bottom: 10px;
     padding: 12px 14px;
+  }
+  .tour-banner-text {
+    min-width: 100%;
+    font-size: 13.5px;
   }
   .tour-banner-actions {
     align-items: flex-start;
     width: 100%;
+  }
+  .tour-banner-copy-row {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .tour-banner-copy-text {
+    white-space: normal;
+    overflow-wrap: break-word;
+    max-width: 100%;
   }
 }

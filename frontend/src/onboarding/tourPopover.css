@@ -5,6 +5,9 @@
   border-radius: 14px;
   box-shadow: 0 14px 34px rgba(139, 124, 246, 0.28), 0 4px 10px rgba(139, 124, 246, 0.16);
   font-family: 'Poppins', sans-serif;
+  /* Capped so it can never stretch wide enough to spill sideways into a
+     neighboring card (e.g. Home's two side-by-side cards). */
+  max-width: min(90vw, 300px);
 }
 
 .hireloop-tour-popover .driver-popover-title {

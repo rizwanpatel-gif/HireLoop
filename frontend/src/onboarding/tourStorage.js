@@ -17,3 +17,13 @@ export const markTourDone = () => {
 
 export const getTourCandidateName = () => localStorage.getItem(NAME_KEY) || 'them';
 export const setTourCandidateName = (name) => localStorage.setItem(NAME_KEY, name);
+
+// Lets a visible "Take a Tour" button restart the whole thing on demand -
+// without this, once someone finishes or skips it once, it stays off forever
+// on that browser, which isn't reasonable to ask a recruiter to work around
+// via DevTools.
+export const resetTour = () => {
+  localStorage.removeItem(DONE_KEY);
+  localStorage.removeItem(STAGE_KEY);
+  localStorage.removeItem(NAME_KEY);
+};

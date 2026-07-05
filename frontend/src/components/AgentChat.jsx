@@ -42,6 +42,7 @@ const AgentChat = () => {
     return null;
   });
   const [tourJustCompleted, setTourJustCompleted] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const lastSeenAssistantIdRef = useRef(null);
   const tourSeededRef = useRef(false);
 
@@ -120,6 +121,8 @@ const AgentChat = () => {
       }
     } catch (err) {
       console.error('Error fetching chat history:', err);
+    } finally {
+      setInitialLoading(false);
     }
   };
 
@@ -176,7 +179,22 @@ const AgentChat = () => {
   };
 
   return (
-    <div className="agent-chat">
+    <div className="tour-page-wrapper">
+      {tourStepIndex !== null && (
+        <TourBanner
+          instruction={CHAT_STEPS[tourStepIndex].instruction}
+          copyText={CHAT_STEPS[tourStepIndex].copy ? CHAT_STEPS[tourStepIndex].copy(getTourCandidateName()) : null}
+          onSkip={() => { markTourDone(); setTourStepIndex(null); }}
+        />
+      )}
+      {tourJustCompleted && (
+        <TourBanner
+          instruction="🎉 Tour complete! You've now seen the full hiring flow - confirm, schedule, reschedule, ask questions, and reject."
+          copyText={null}
+          onSkip={() => setTourJustCompleted(false)}
+        />
+      )}
+      <div className="agent-chat">
       <div className="agent-chat-header">
         <div className="agent-chat-header-row">
           <div>
@@ -190,7 +208,10 @@ const AgentChat = () => {
       </div>
 
       <div className="agent-chat-messages">
-        {messages.length === 0 && (
+        {initialLoading && (
+          <div className="agent-chat-empty">Loading chat...</div>
+        )}
+        {!initialLoading && messages.length === 0 && (
           <div className="agent-chat-empty">No messages yet. Add a candidate to get started.</div>
         )}
         {messages.map((m) => (
@@ -241,20 +262,7 @@ const AgentChat = () => {
         </button>
       </form>
 
-      {tourStepIndex !== null && (
-        <TourBanner
-          instruction={CHAT_STEPS[tourStepIndex].instruction}
-          copyText={CHAT_STEPS[tourStepIndex].copy ? CHAT_STEPS[tourStepIndex].copy(getTourCandidateName()) : null}
-          onSkip={() => { markTourDone(); setTourStepIndex(null); }}
-        />
-      )}
-      {tourJustCompleted && (
-        <TourBanner
-          instruction="🎉 Tour complete! You've now seen the full hiring flow - confirm, schedule, reschedule, ask questions, and reject."
-          copyText={null}
-          onSkip={() => setTourJustCompleted(false)}
-        />
-      )}
+      </div>
     </div>
   );
 };

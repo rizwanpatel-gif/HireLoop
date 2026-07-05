@@ -80,3 +80,5 @@ static/
 # AI-agent hiring pipeline: local vector store + LangGraph checkpoints
 backend/chroma_store/
 backend/langgraph_checkpoints.db
+backend/langgraph_checkpoints.db-shm
+backend/langgraph_checkpoints.db-wal

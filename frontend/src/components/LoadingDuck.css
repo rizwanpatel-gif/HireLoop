@@ -1,0 +1,127 @@
+.loading-duck-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  z-index: 10;
+  animation: duckOverlayIn 0.25s ease both;
+}
+
+@keyframes duckOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.loading-duck-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+}
+
+.loading-duck-svg {
+  width: 120px;
+  height: 130px;
+  overflow: visible;
+}
+
+.duck-shadow {
+  transform-origin: 60px 118px;
+  animation: duckShadowPulse 0.6s ease-in-out infinite;
+}
+
+@keyframes duckShadowPulse {
+  0%, 100% {
+    transform: scaleX(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scaleX(0.7);
+    opacity: 0.35;
+  }
+}
+
+.duck-body-group {
+  transform-origin: 60px 100px;
+  animation: duckApproach 0.6s ease-in-out infinite;
+}
+
+@keyframes duckApproach {
+  0%, 100% {
+    transform: translateY(0) scale(0.94) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-10px) scale(1.05) rotate(3deg);
+  }
+}
+
+.duck-leg {
+  transform-origin: 50% 0%;
+  animation: duckLegKick 0.3s ease-in-out infinite;
+}
+
+.duck-leg-left {
+  animation-delay: 0s;
+}
+
+.duck-leg-right {
+  animation-delay: 0.15s;
+}
+
+@keyframes duckLegKick {
+  0%, 100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-4px) scaleY(0.85);
+  }
+}
+
+.loading-duck-text {
+  margin: 0;
+  color: #6d4fd6;
+  font-weight: 600;
+  font-size: 15px;
+  text-align: center;
+}
+
+.loading-duck-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.loading-duck-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c4b5fd;
+  animation: duckDotBounce 1.2s infinite ease-in-out;
+}
+
+.loading-duck-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-duck-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes duckDotBounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}

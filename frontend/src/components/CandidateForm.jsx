@@ -1,28 +1,60 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { driver } from 'driver.js';
+import 'driver.js/dist/driver.css';
+import LoadingDuck from './LoadingDuck';
+import TourBanner from '../onboarding/TourBanner';
+import CopyButton from '../onboarding/CopyButton';
+import { DEMO_RESUME_TEXT } from '../onboarding/tourSteps';
+import { getStage, setStage, setTourCandidateName, markTourDone } from '../onboarding/tourStorage';
+import { API_BASE_URL } from '../config';
 import './CandidateForm.css';
 
 const CandidateForm = () => {
+  const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    current_title: '',
-    skills: '',
-    resume_summary: '',
-    preferred_interview_date: '',
-    phone: '',
-    location: '',
-    experience_years: ''
+    job_role_id: '',
+    resume_summary: ''
   });
 
+  const [jobRoles, setJobRoles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [tourActive, setTourActive] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/job-roles/`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setJobRoles(data))
+      .catch(err => console.error('Error fetching job roles:', err));
+  }, []);
+
+  useEffect(() => {
+    if (getStage() !== 'form') return;
+    setTourActive(true);
+
+    const driverObj = driver({
+      showProgress: true,
+      allowClose: true,
+      popoverClass: 'hireloop-tour-popover',
+      steps: [
+        { element: '#name', popover: { title: 'Your name', description: 'Type your own real name here.' } },
+        { element: '#email', popover: { title: 'Your real email', description: "Add your own real email - you'll actually receive the round/rejection emails, so you can see the system genuinely works." } },
+        { element: '#job_role_id', popover: { title: 'Pick a role', description: 'Pick any role from the list.' } },
+        { element: '#resume_summary', popover: { title: 'Paste a resume', description: "Use the \"Copy demo resume\" button above this field, then paste it in here." } },
+        { element: '#submit-candidate-button', popover: { title: 'Submit', description: 'Once everything is filled in, click Submit to create the candidate and jump into the live chat.' } },
+      ],
+    });
+    driverObj.drive();
+    return () => driverObj.destroy();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
@@ -31,67 +63,63 @@ const CandidateForm = () => {
     setMessage({ type: '', text: '' });
 
     try {
-      // Prepare data
       const candidateData = {
-        ...formData,
-        skills: formData.skills.split(',').map(skill => skill.trim()).filter(skill => skill),
-        experience_years: formData.experience_years ? parseFloat(formData.experience_years) : null,
-        preferred_interview_date: formData.preferred_interview_date ? 
-          new Date(formData.preferred_interview_date).toISOString() : null
+        name: formData.name,
+        email: formData.email,
+        job_role_id: formData.job_role_id ? parseInt(formData.job_role_id, 10) : null,
+        resume_summary: formData.resume_summary
       };
 
-      console.log('Submitting candidate data:', candidateData);
-
-      // Submit to API
-      const response = await fetch('http://localhost:8000/api/candidates/', {
+      const response = await fetch(`${API_BASE_URL}/api/candidates/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(candidateData)
       });
 
       if (response.ok) {
         const result = await response.json();
-        setMessage({ 
-          type: 'success', 
-          text: `Candidate ${result.name} created successfully! ID: ${result.id}` 
-        });
-        
-        // Reset form
-        setFormData({
-          name: '',
-          email: '',
-          current_title: '',
-          skills: '',
-          resume_summary: '',
-          preferred_interview_date: '',
-          phone: '',
-          location: '',
-          experience_years: ''
-        });
+
+        if (result.status === 'rejected') {
+          setIsSubmitting(false);
+          const tourHint = tourActive ? ' Try picking a different role and submitting again.' : '';
+          setMessage({
+            type: 'error',
+            text: `${result.message} (match score: ${result.match_score}/100)${tourHint}`
+          });
+        } else {
+          if (tourActive) {
+            setTourCandidateName(formData.name || 'them');
+            setStage('chat:round1');
+          }
+          // Passed the AI screen and is now waiting on HR in chat - go there directly.
+          navigate('/agent-chat');
+        }
       } else {
         const error = await response.json();
-        setMessage({ 
-          type: 'error', 
-          text: error.detail || 'Failed to create candidate' 
+        setIsSubmitting(false);
+        setMessage({
+          type: 'error',
+          text: error.detail || 'Failed to create candidate'
         });
       }
     } catch (error) {
       console.error('Error submitting form:', error);
-      setMessage({ 
-        type: 'error', 
-        text: 'Network error. Please check if the backend server is running.' 
-      });
-    } finally {
       setIsSubmitting(false);
+      setMessage({
+        type: 'error',
+        text: 'Network error. Please check if the backend server is running.'
+      });
     }
   };
 
   return (
     <div className="candidate-form-container">
+      {isSubmitting && <LoadingDuck message="Screening the resume..." />}
       <h2>Add New Candidate</h2>
-      
+      <p className="form-subtitle">
+        Just the basics - the AI screens the resume against the role, and HireLoop's chat assistant handles everything from there.
+      </p>
+
       {message.text && (
         <div className={`message ${message.type}`}>
           {message.text}
@@ -126,105 +154,59 @@ const CandidateForm = () => {
         </div>
 
         <div className="form-group">
-          <label htmlFor="current_title">Current Job Title *</label>
-          <input
-            type="text"
-            id="current_title"
-            name="current_title"
-            value={formData.current_title}
+          <label htmlFor="job_role_id">Applying For *</label>
+          <select
+            id="job_role_id"
+            name="job_role_id"
+            value={formData.job_role_id}
             onChange={handleChange}
             required
-            placeholder="e.g., Senior Software Engineer"
-          />
+          >
+            <option value="" disabled>Select a role...</option>
+            {jobRoles.map(role => (
+              <option key={role.id} value={role.id}>
+                {role.title}{role.department ? ` (${role.department})` : ''}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="form-group">
-          <label htmlFor="skills">Technical Skills *</label>
-          <input
-            type="text"
-            id="skills"
-            name="skills"
-            value={formData.skills}
-            onChange={handleChange}
-            required
-            placeholder="React, Node.js, Python, AWS (comma-separated)"
-          />
-          <small>Separate skills with commas</small>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="resume_summary">Resume Summary *</label>
+          <div className="form-label-row">
+            <label htmlFor="resume_summary">Resume *</label>
+            {tourActive && (
+              <CopyButton text={DEMO_RESUME_TEXT} label="Copy demo resume" />
+            )}
+          </div>
           <textarea
             id="resume_summary"
             name="resume_summary"
             value={formData.resume_summary}
             onChange={handleChange}
             required
-            rows="4"
-            placeholder="Brief summary of candidate's experience and qualifications..."
+            rows="8"
+            placeholder="Paste the candidate's resume text here..."
           ></textarea>
+          <small>Experience and skills are extracted automatically from this text.</small>
         </div>
 
-        <div className="form-group">
-          <label htmlFor="preferred_interview_date">Preferred Interview Date</label>
-          <input
-            type="datetime-local"
-            id="preferred_interview_date"
-            name="preferred_interview_date"
-            value={formData.preferred_interview_date}
-            onChange={handleChange}
-          />
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="phone">Phone Number</label>
-            <input
-              type="tel"
-              id="phone"
-              name="phone"
-              value={formData.phone}
-              onChange={handleChange}
-              placeholder="+1 (555) 123-4567"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="experience_years">Years of Experience</label>
-            <input
-              type="number"
-              id="experience_years"
-              name="experience_years"
-              value={formData.experience_years}
-              onChange={handleChange}
-              min="0"
-              max="50"
-              step="0.5"
-              placeholder="5.5"
-            />
-          </div>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="location">Location</label>
-          <input
-            type="text"
-            id="location"
-            name="location"
-            value={formData.location}
-            onChange={handleChange}
-            placeholder="City, State/Country"
-          />
-        </div>
-
-        <button 
-          type="submit" 
+        <button
+          id="submit-candidate-button"
+          type="submit"
           className="submit-button"
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Creating Candidate...' : 'Create Candidate'}
+          {isSubmitting ? 'Screening resume...' : 'Submit Candidate'}
         </button>
       </form>
+
+      {tourActive && (
+        <TourBanner
+          instruction="Fill in your own name and email, pick any role, paste the demo resume, then submit."
+          copyText={null}
+          onSkip={() => { markTourDone(); setTourActive(false); }}
+        />
+      )}
     </div>
   );
 };

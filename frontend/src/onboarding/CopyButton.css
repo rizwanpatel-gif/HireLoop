@@ -1,0 +1,19 @@
+.tour-copy-btn {
+  padding: 7px 14px;
+  background: linear-gradient(135deg, #a78bfa 0%, #8b7cf6 100%);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.tour-copy-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(139, 124, 246, 0.3);
+}

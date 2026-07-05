@@ -1,0 +1,42 @@
+/* Restyle Driver.js's default popover to match HireLoop's lavender/white theme. */
+.hireloop-tour-popover.driver-popover {
+  background: #ffffff;
+  border: 1.5px solid #d9cdfb;
+  border-radius: 14px;
+  box-shadow: 0 14px 34px rgba(139, 124, 246, 0.28), 0 4px 10px rgba(139, 124, 246, 0.16);
+  font-family: 'Poppins', sans-serif;
+}
+
+.hireloop-tour-popover .driver-popover-title {
+  color: #4b4458;
+  font-family: 'Fraunces', serif;
+}
+
+.hireloop-tour-popover .driver-popover-description {
+  color: #6e6480;
+}
+
+.hireloop-tour-popover .driver-popover-progress-text {
+  color: #a89db0;
+}
+
+.hireloop-tour-popover button.driver-popover-next-btn,
+.hireloop-tour-popover button.driver-popover-prev-btn {
+  background: linear-gradient(135deg, #a78bfa 0%, #8b7cf6 100%);
+  color: white;
+  border: none;
+  text-shadow: none;
+}
+
+.driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: #ffffff;
+}
+.driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: #ffffff;
+}
+.driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: #ffffff;
+}
+.driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: #ffffff;
+}

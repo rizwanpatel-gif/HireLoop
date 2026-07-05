@@ -43,6 +43,8 @@ class User(Base):
     name = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), nullable=False, default=UserRole.INTERVIEWER)
     google_calendar_id = Column(String(255), nullable=True)
+    experience_years = Column(Float, nullable=True)  # Interviewer seniority, used for candidate->interviewer assignment
+    expertise_areas = Column(Text, nullable=True)  # Comma-separated, mirrors Candidate.skills convention
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -63,6 +65,7 @@ class Candidate(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     phone = Column(String(20), nullable=True)
     position = Column(String(255), nullable=False)
+    job_role_id = Column(Integer, ForeignKey('job_roles.id', ondelete='SET NULL'), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -99,6 +102,7 @@ class Candidate(Base):
     interview_scheduled = Column(Integer, nullable=True, default=0)
     interview_datetime = Column(DateTime(timezone=True), nullable=True)
     interview_type = Column(String(50), nullable=True)
+    current_round = Column(Integer, nullable=True, default=0)  # Current interview round (0=not started, 1=first round, etc.)
     recruiter_notes = Column(Text, nullable=True)
     red_flags = Column(Text, nullable=True)  # JSON string
     tags = Column(Text, nullable=True)  # JSON string
@@ -133,6 +137,42 @@ class Interview(Base):
     
     def __repr__(self):
         return f"<Interview(id={self.id}, candidate_id={self.candidate_id}, interviewer_id={self.interviewer_id}, scheduled_time='{self.scheduled_time}', status='{self.status.value}')>"
+
+class JobRole(Base):
+    """
+    An open role/department HR is hiring for. Candidates apply against one role,
+    and its jd_text is what resumes get RAG-matched against.
+    """
+    __tablename__ = 'job_roles'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(255), nullable=False)
+    department = Column(String(255), nullable=True)
+    jd_text = Column(Text, nullable=False)
+    is_active = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    candidates = relationship("Candidate", backref="job_role")
+
+    def __repr__(self):
+        return f"<JobRole(id={self.id}, title='{self.title}', department='{self.department}')>"
+
+class ChatMessage(Base):
+    """
+    HR <-> agent chat history. Linear feed (single HR account), candidate_id is a
+    best-effort link for grouping in the UI, not an enforced relationship.
+    """
+    __tablename__ = 'chat_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    role = Column(String(20), nullable=False)  # 'hr' | 'assistant'
+    content = Column(Text, nullable=False)
+    candidate_id = Column(Integer, nullable=True)
+    metadata_json = Column(Text, nullable=True)  # JSON string, e.g. clickable slot_options
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, role='{self.role}')>"
 
 # Database configuration
 class DatabaseConfig:

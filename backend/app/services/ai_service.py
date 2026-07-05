@@ -5,6 +5,7 @@ Provides candidate analysis and interviewer matching using Claude-3-Haiku
 import os
 import json
 import logging
+import time
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 import requests
@@ -14,6 +15,22 @@ from enum import Enum
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _fix_mojibake(text: str) -> str:
+    """
+    Some free-tier OpenRouter provider backends double-encode UTF-8 punctuation
+    (em dashes, curly quotes) as cp1252 before returning it, producing garbage
+    like 'testâ€‘driven' instead of 'test‑driven'. Reversing that specific
+    mis-encoding round-trip repairs it; if the text wasn't actually mojibake,
+    the round-trip raises and we just return it unchanged.
+    """
+    if not text:
+        return text
+    try:
+        return text.encode('cp1252').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
 
 class SkillLevel(Enum):
     """Skill proficiency levels"""
@@ -324,13 +341,21 @@ class AIService:
     AI-powered candidate analysis and interviewer matching service using OpenRouter
     """
     
-    def __init__(self, api_key: str = None, model: str = "qwen/qwen3-coder:free"):
+    # If the primary model gets rate-limited (429), retry immediately against this
+    # model instead of sleeping — recovers faster during shared free-tier rate-limit windows.
+    FALLBACK_MODEL = "qwen/qwen3-coder:free"
+
+    def __init__(self, api_key: str = None, model: str = "openai/gpt-oss-20b:free"):
         """
         Initialize AI Service with OpenRouter API
-        
+
         Args:
             api_key: OpenRouter API key (or set OPENROUTER_API_KEY env var)
-            model: AI model to use (default: deepseek/deepseek-chat-v3-0324:free for cost-effectiveness)
+            model: AI model to use (default: openai/gpt-oss-20b:free — verified live
+                and responsive on OpenRouter's free tier. mistralai/mistral-small-3.2-24b-instruct:free
+                and deepseek/deepseek-chat-v3-0324:free were both retired and now 404;
+                qwen/qwen3-coder:free and meta-llama/llama-3.3-70b-instruct:free are
+                still valid but were heavily rate-limited (429) at time of testing.)
         """
         self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
         if not self.api_key:
@@ -338,18 +363,30 @@ class AIService:
                 "OpenRouter API key is required. Set OPENROUTER_API_KEY environment variable "
                 "or pass api_key parameter. Get your key from: https://openrouter.ai/keys"
             )
-        
+
         self.model = model
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/your-org/rhero",  # Replace with your actual URL
-            "X-Title": "RHero Interview Scheduling System"
+            "HTTP-Referer": "https://github.com/your-org/hireloop",  # Replace with your actual URL
+            "X-Title": "HireLoop Interview Scheduling System"
         }
+        # Reused across calls so each request doesn't pay a fresh TCP+TLS handshake.
+        self._session = requests.Session()
         
         # Model configurations for cost optimization
         self.model_configs = {
+            "openai/gpt-oss-20b:free": {
+                "max_tokens": 4000,
+                "temperature": 0.3,
+                "cost_per_1k_tokens": 0.0  # Free model! Verified responsive.
+            },
+            "mistralai/mistral-small-3.2-24b-instruct:free": {
+                "max_tokens": 4000,
+                "temperature": 0.3,
+                "cost_per_1k_tokens": 0.0  # Free model! Fast responses
+            },
             "qwen/qwen3-coder:free": {
                 "max_tokens": 4000,
                 "temperature": 0.3,
@@ -379,14 +416,17 @@ class AIService:
         
         logger.info(f"AI Service initialized with model: {self.model}")
     
-    def _make_api_call(self, messages: List[Dict], system_prompt: str = "") -> Optional[str]:
+    def _make_api_call(self, messages: List[Dict], system_prompt: str = "", max_tokens: Optional[int] = None) -> Optional[str]:
         """
         Make API call to OpenRouter
-        
+
         Args:
             messages: List of message dictionaries
             system_prompt: System prompt to guide AI behavior
-            
+            max_tokens: Override the model's default max_tokens — pass a small value
+                (e.g. ~700) for classification/JSON-extraction calls that don't need
+                the full 4000-token budget, to keep generation time down.
+
         Returns:
             AI response text or None if failed
         """
@@ -394,47 +434,67 @@ class AIService:
             # Prepare messages with system prompt
             if system_prompt:
                 messages = [{"role": "system", "content": system_prompt}] + messages
-            
+
             # Get model configuration
-            config = self.model_configs.get(self.model, self.model_configs["qwen/qwen3-coder:free"])
-            
+            config = self.model_configs.get(self.model, self.model_configs["openai/gpt-oss-20b:free"])
+
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": config["max_tokens"],
+                "max_tokens": max_tokens or config["max_tokens"],
                 "temperature": config["temperature"],
                 "top_p": 1,
                 "frequency_penalty": 0,
                 "presence_penalty": 0
             }
-            
+
             logger.info(f"Making API call to {self.model}")
-            
-            response = requests.post(
-                self.base_url,
-                headers=self.headers,
-                json=payload,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                content = data['choices'][0]['message']['content']
-                
-                # Log usage for cost tracking
-                usage = data.get('usage', {})
-                total_tokens = usage.get('total_tokens', 0)
-                estimated_cost = total_tokens * config["cost_per_1k_tokens"] / 1000
-                
-                logger.info(f"✅ AI API call successful")
-                logger.info(f"   Tokens used: {total_tokens}")
-                logger.info(f"   Estimated cost: ${estimated_cost:.6f}")
-                
-                return content
-            else:
+
+            # On a 429, switch to the fallback model immediately instead of sleeping —
+            # only sleep (briefly) if the fallback itself is also rate-limited.
+            max_attempts = 2
+            current_model = self.model
+            for attempt in range(1, max_attempts + 1):
+                payload["model"] = current_model
+                response = self._session.post(
+                    self.base_url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    content = _fix_mojibake(data['choices'][0]['message']['content'])
+
+                    # Log usage for cost tracking
+                    usage = data.get('usage', {})
+                    total_tokens = usage.get('total_tokens', 0)
+                    estimated_cost = total_tokens * config["cost_per_1k_tokens"] / 1000
+
+                    logger.info(f"✅ AI API call successful ({current_model})")
+                    logger.info(f"   Tokens used: {total_tokens}")
+                    logger.info(f"   Estimated cost: ${estimated_cost:.6f}")
+
+                    return content
+
+                if response.status_code == 429 and attempt < max_attempts:
+                    if current_model != self.FALLBACK_MODEL:
+                        logger.warning(f"Rate limited (429) on {current_model}, switching to fallback model {self.FALLBACK_MODEL}")
+                        current_model = self.FALLBACK_MODEL
+                        continue
+                    retry_after = 5
+                    try:
+                        retry_after = min(8, response.json().get('error', {}).get('metadata', {}).get('retry_after_seconds', 5))
+                    except Exception:
+                        pass
+                    logger.warning(f"Rate limited (429), retrying in {retry_after}s (attempt {attempt}/{max_attempts})")
+                    time.sleep(retry_after)
+                    continue
+
                 logger.error(f"API call failed with status {response.status_code}: {response.text}")
                 return None
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error in AI API call: {e}")
             return None
@@ -771,11 +831,97 @@ IMPORTANT: Base your analysis on actual resume content and stated experience. Pr
                 logger.error(f"Failed to parse AI response JSON: {e}")
                 logger.error(f"Response was: {response[:500]}...")
                 return None
-            
+
         except Exception as e:
             logger.error(f"Unexpected error in candidate analysis: {e}")
             return None
-    
+
+    def score_resume_match(
+        self,
+        resume_text: str,
+        role_title: str,
+        retrieved_jd_chunks: List[str]
+    ) -> Optional[Dict]:
+        """
+        Score how well a resume matches a job role, using only the JD excerpts
+        retrieved via RAG as the ground truth for what the role requires (rather
+        than re-deriving requirements from the role title alone).
+
+        Args:
+            resume_text: Candidate's resume text
+            role_title: Title of the job role being applied for
+            retrieved_jd_chunks: JD excerpts retrieved as most relevant to this resume
+
+        Returns:
+            Dict with match_score (0-100), matched_requirements, missing_requirements,
+            rationale, estimated_experience_years, extracted_skills — or None if the
+            AI call/parse failed. The form no longer collects experience/skills
+            directly, so this call also extracts them from the resume text itself.
+        """
+        try:
+            jd_excerpt_block = "\n---\n".join(retrieved_jd_chunks) if retrieved_jd_chunks else "(no matching excerpts retrieved)"
+
+            system_prompt = """You are a technical recruiter scoring how well a candidate's resume matches a job's requirements.
+
+You will be given ONLY a set of retrieved job-description excerpts (not the full JD) - treat these excerpts as the complete set of requirements to check against. Do not invent requirements that aren't in the excerpts.
+
+You will also extract a couple of facts directly from the resume text (not the JD): the candidate's total years of professional experience, and a short list of their key technical skills.
+
+RESPONSE FORMAT: Return ONLY valid JSON, no markdown, no additional text, in this exact shape:
+{
+    "match_score": <0-100>,
+    "matched_requirements": ["requirement the resume satisfies", ...],
+    "missing_requirements": ["requirement the resume does not show evidence of", ...],
+    "rationale": "1-3 sentence explanation of the score",
+    "estimated_experience_years": <best-guess total years of professional experience as a number, e.g. 4.5>,
+    "extracted_skills": ["skill1", "skill2", ...]
+}"""
+
+            user_prompt = f"""ROLE: {role_title}
+
+RETRIEVED JOB REQUIREMENT EXCERPTS:
+{jd_excerpt_block}
+
+CANDIDATE RESUME:
+{resume_text[:4000]}
+
+Score this resume against the retrieved requirement excerpts."""
+
+            messages = [{"role": "user", "content": user_prompt}]
+            response = self._make_api_call(messages, system_prompt, max_tokens=700)
+
+            if not response:
+                logger.error("Failed to get AI response for resume match scoring")
+                return None
+
+            response = response.strip()
+            if response.startswith('```json'):
+                response = response[7:-3]
+            elif response.startswith('```'):
+                response = response[3:-3]
+
+            result = json.loads(response.strip())
+            result['match_score'] = max(0.0, min(100.0, float(result.get('match_score', 0))))
+            try:
+                result['estimated_experience_years'] = max(0.0, float(result.get('estimated_experience_years') or 0))
+            except (TypeError, ValueError):
+                result['estimated_experience_years'] = 0.0
+            if not isinstance(result.get('extracted_skills'), list):
+                result['extracted_skills'] = []
+
+            logger.info(
+                f"✅ Resume match scored for role '{role_title}': {result['match_score']}/100 "
+                f"(~{result['estimated_experience_years']} yrs experience)"
+            )
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse resume match JSON: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in resume match scoring: {e}")
+            return None
+
     def match_interviewer(
         self,
         candidate: Union[CandidateProfile, Dict],

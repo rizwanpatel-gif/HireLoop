@@ -54,3 +54,13 @@ pathlib>=1.0.1
 # Data processing and validation
 dataclasses>=0.6  # Python 3.7+ built-in
 enum34>=1.1.10;python_version<"3.4"  # For older Python versions
+
+# AI-agent hiring pipeline: RAG matching + LangGraph orchestration
+chromadb>=0.5.0                     # local persistent vector store (no signup/API key)
+onnxruntime>=1.17.0                 # needed by Chroma's default embedding function
+langchain-text-splitters>=0.2.0     # RecursiveCharacterTextSplitter only
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=2.0.0  # SqliteSaver, lets the graph pause for real between HR replies
+rapidfuzz>=3.6.0                    # fuzzy candidate-name matching from HR chat text
+python-dateutil>=2.9.0              # flexible free-text datetime parsing in chat
+slowapi>=0.1.9                      # per-IP rate limiting on costly/abusable endpoints

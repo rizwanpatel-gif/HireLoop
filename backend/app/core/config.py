@@ -1,5 +1,5 @@
 """
-Configuration settings for RHero Interview Management System
+Configuration settings for HireLoop Interview Management System
 """
 
 import os
@@ -8,11 +8,11 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Application Settings
-    app_name: str = "RHero Interview Management System"
+    app_name: str = "HireLoop Interview Management System"
     debug: bool = False
     
     # Database Settings
-    database_url: str = "sqlite:///./rhero.db"
+    database_url: str = "sqlite:///./hireloop.db"
     
     # Google Calendar API Settings
     google_client_id: str = ""
@@ -29,10 +29,9 @@ class Settings(BaseSettings):
     email_password: str = ""
     
     # Security Settings
-    secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
-    
+
     # Business Logic Settings
     interview_duration_minutes: int = 60
     business_hours_start: int = 9  # 9 AM

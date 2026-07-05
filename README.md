@@ -1,141 +1,89 @@
-# HireLoop - Enhanced Automated Interview System
+# HireLoop
 
-![HireLoop Logo](https://placeholder.com/your-logo.png)
+An AI-agent hiring pipeline. HR submits a candidate's resume against a job role; a RAG pipeline scores the match and auto-rejects anything below threshold before it ever reaches the database. Everything past that point (sending the round-1 invite, scheduling, rescheduling, rejecting) is driven by HR chatting in plain English with a LangGraph-orchestrated agent that can genuinely pause mid-conversation and resume later.
 
-HireLoop is a comprehensive automated interview scheduling system that combines AI candidate analysis with Google Calendar integration and automated email notifications.
+Live demo: https://hire-loop-snowy.vercel.app
+API docs: https://hireloop-rizwan.duckdns.org/docs
 
-## ✨ Features
+## How it works
 
-- 🤖 **AI Analysis** - Automated candidate assessment using DeepSeek AI model
-- 📅 **Google Calendar Integration** - Automatic interview scheduling and availability checking
-- 📧 **Automated Email Notifications** - For both candidates and interviewers
-- 🔄 **Complete Automation Workflow** - End-to-end candidate processing
-- 💾 **Database Integration** - Track candidate status and interview details
+1. **Screening.** A resume is chunked and matched against the applied-for role's job description using a local ChromaDB vector store. The most relevant JD excerpts are retrieved and handed to an LLM (via OpenRouter) to score the match. Below the threshold, the candidate is rejected by email and never inserted into the database.
+2. **Orchestration.** Above threshold, a LangGraph state machine starts a thread for that candidate. Each node (`ask_round1`, `ask_datetime`, `schedule_round`, `await_freetext`) interrupts and waits for HR's next chat message, checkpointed to SQLite so the graph can pause across HTTP requests, potentially days apart.
+3. **Chat interface.** HR never touches a form after the initial submission. A single chat page handles round confirmations, scheduling, rescheduling, ad-hoc status/stat queries, and rejection, all parsed from free text.
 
-## 🛠️ Setup & Installation
+## Tech stack
 
-### Prerequisites
+**Backend:** FastAPI, SQLAlchemy, SQLite, LangGraph, ChromaDB, `langchain-text-splitters`, OpenRouter (LLM API), rapidfuzz, slowapi
 
-- Python 3.8+
-- Google Cloud Platform account with Calendar API enabled
-- Email account with SMTP access
+**Frontend:** React, react-router-dom, driver.js (onboarding walkthrough)
 
-### Installation
+**Deployed on:** Oracle Cloud (Ubuntu, systemd, nginx, Let's Encrypt) for the backend, Vercel for the frontend
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/HireLoop.git
-   cd HireLoop
-   ```
-
-2. **Set up virtual environment**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-3. **Environment configuration**
-   - Copy `.env.example` to `.env`
-   - Fill in required credentials
-
-   ```bash
-   cp .env.example .env
-   # Edit .env with your credentials
-   ```
-
-### Configuration
-
-#### 1. Google Calendar API Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project
-3. Enable the Google Calendar API
-4. Create OAuth 2.0 credentials:
-   - Application type: Desktop application
-   - Name: HireLoop Calendar
-   - Add authorized redirect URIs:
-     - `http://localhost:8080/`
-     - `urn:ietf:wg:oauth:2.0:oob`
-
-5. Download credentials as JSON and save as `credentials.json` in the backend directory
-6. Run OAuth authentication script:
-   ```bash
-   cd backend
-   python fix_oauth_manually.py
-   ```
-7. Follow browser instructions to authenticate
-
-#### 2. Email Setup
-
-1. For Gmail:
-   - Enable "Less secure app access" or
-   - Create an App Password (if using 2FA)
-   - Add to `.env`:
-     ```
-     SMTP_SERVER=smtp.gmail.com
-     SMTP_PORT=587
-     EMAIL_USERNAME=your-email@gmail.com
-     EMAIL_PASSWORD=your-app-password
-     ```
-
-#### 3. AI Service Setup
-
-1. Get API key from [OpenRouter](https://openrouter.ai/keys)
-2. Add to `.env`:
-   ```
-   OPENROUTER_API_KEY=your-api-key
-   ```
-
-## 🚀 Running the System
+## Running it locally
 
 ### Backend
 
 ```bash
 cd backend
-python main_simple.py
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-### Testing
+Create `backend/.env`:
 
-Create a test candidate:
+```
+OPENROUTER_API_KEY=your_openrouter_key
+EMAIL_USERNAME=your_email
+EMAIL_PASSWORD=your_email_app_password
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+FRONTEND_ORIGINS=http://localhost:3000
+DATABASE_URL=sqlite:///interview_system.db
+MATCH_SCORE_THRESHOLD=60
+```
+
+Create the schema and seed demo data:
+
 ```bash
-python test_automation.py
+python migrate_add_current_round.py
+python migrate_add_chat_slot_metadata.py
+python migrate_add_hiring_pipeline.py
+python seed_demo_data.py
 ```
 
-Or use the API directly:
+Run it:
+
 ```bash
-curl -X POST http://localhost:8000/api/candidates/ -H "Content-Type: application/json" -d "{\"name\":\"Test User\",\"email\":\"test@example.com\",\"position\":\"Developer\",\"skills\":\"Python, JavaScript\",\"experience_years\":5,\"education\":\"Computer Science\",\"current_title\":\"Software Developer\",\"resume_text\":\"Experienced developer with strong technical skills\",\"resume_summary\":\"Testing automation\",\"interview_datetime\":\"2025-08-05T15:00:00\"}"
+uvicorn main:app --reload
 ```
 
-## 📋 API Documentation
+API docs at `http://localhost:8000/docs`.
 
-Access the interactive API docs at: http://localhost:8000/docs
+### Frontend
 
-## 📊 System Architecture
-
-```
-┌──────────────┐     ┌───────────────┐     ┌─────────────────┐
-│ Candidate    │─────▶ AI Analysis   │─────▶ Calendar Check  │
-│ Submission   │     │ (DeepSeek)    │     │ (Google API)    │
-└──────────────┘     └───────────────┘     └─────────────────┘
-                                                  │
-┌──────────────┐     ┌───────────────┐            ▼
-│ Database     │◀────▶ Email         │◀────┬─────────────────┐
-│ Update       │     │ Notifications │     │ Schedule/Find   │
-└──────────────┘     └───────────────┘     │ Alternative     │
-                                           └─────────────────┘
+```bash
+cd frontend
+npm install
+npm start
 ```
 
-## 📝 License
+By default it points at `http://localhost:8000`. To point it at a deployed backend instead, set `REACT_APP_API_URL` in `frontend/.env.local`.
 
-[MIT License](LICENSE)
+## Project structure
 
-## 👨‍💻 Author
+```
+backend/
+  app/
+    routers/            # candidates_standalone, agent_chat, job_roles, dashboard_simple
+    services/           # ai_service, matching_service, hiring_graph, command_parser, email_service
+    models/             # SQLAlchemy models
+  main.py               # FastAPI app entrypoint
+  migrate_*.py          # raw-SQLite schema migrations (no Alembic)
+  seed_demo_data.py
 
-Rizwan Patel
-
-## 🙏 Acknowledgments
-
-- DeepSeek for AI analysis capabilities
-- Google Calendar API for scheduling integration
+frontend/
+  src/
+    components/         # Home, CandidateForm, AgentChat
+    onboarding/          # Driver.js-driven guided tour
+```

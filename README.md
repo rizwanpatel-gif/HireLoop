@@ -1,8 +1,8 @@
-# RHero - Enhanced Automated Interview System
+# HireLoop - Enhanced Automated Interview System
 
-![RHero Logo](https://placeholder.com/your-logo.png)
+![HireLoop Logo](https://placeholder.com/your-logo.png)
 
-RHero is a comprehensive automated interview scheduling system that combines AI candidate analysis with Google Calendar integration and automated email notifications.
+HireLoop is a comprehensive automated interview scheduling system that combines AI candidate analysis with Google Calendar integration and automated email notifications.
 
 ## ✨ Features
 
@@ -24,8 +24,8 @@ RHero is a comprehensive automated interview scheduling system that combines AI 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/RHero.git
-   cd RHero
+   git clone https://github.com/yourusername/HireLoop.git
+   cd HireLoop
    ```
 
 2. **Set up virtual environment**
@@ -53,7 +53,7 @@ RHero is a comprehensive automated interview scheduling system that combines AI 
 3. Enable the Google Calendar API
 4. Create OAuth 2.0 credentials:
    - Application type: Desktop application
-   - Name: RHero Calendar
+   - Name: HireLoop Calendar
    - Add authorized redirect URIs:
      - `http://localhost:8080/`
      - `urn:ietf:wg:oauth:2.0:oob`
